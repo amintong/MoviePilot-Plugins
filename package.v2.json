@@ -302,5 +302,23 @@
         "history": {
             "v2.0": "兼容MoviePilot V2"
         }
+    },
+    "test": {
+        "name": "test",
+        "description": "test",
+        "labels": "test",
+        "version": "1.0",
+        "icon": "test.png",
+        "author": "test",
+        "level": 1
+    },
+    "downloadteamsubtitle": {
+        "name": "下载任务字幕",
+        "description": "自动给下载任务添加字幕",
+        "labels": "字幕",
+        "version": "0.2",
+        "icon": "Youtube-dl_B.png",
+        "author": "amintong",
+        "level": 1
     }
 }
