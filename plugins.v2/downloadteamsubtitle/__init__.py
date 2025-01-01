@@ -19,7 +19,6 @@ from app.schemas import ServiceInfo
 from app.schemas.types import EventType, MediaType
 from app.utils.string import StringUtils
 
-from .proc import TeamProcess
 class DownloadTeamSubtitle(_PluginBase):
     # 插件名称
     plugin_name = "下载任务字幕"
@@ -528,3 +527,96 @@ class DownloadTeamSubtitle(_PluginBase):
                 self._scheduler = None
         except Exception as e:
             print(str(e))
+
+
+class TeamProcess():
+    LOG_TAG=None
+    team_domain_flg = "team"
+    downloadhistory_oper = None
+    downloader_helper = None
+    sites_helper = None 
+    def __init__(self, LOG_TAG:str):
+        self.LOG_TAG = LOG_TAG
+        self.downloadhistory_oper = DownloadHistoryOper()
+        self.downloader_helper = DownloaderHelper()
+        self.sites_helper = SitesHelper()
+        pass
+
+    def get_team_siteinfo(self)->Tuple[bool, SiteInfo]:
+        sites = self.sites_helper.get_indexers()
+        # 获取站点信息
+        for site in sites:
+            siteInfo = SiteInfo()
+            siteInfo.from_dict(site)
+            logger.info(f"{self.LOG_TAG}站点信息：{siteInfo.domain}, {",".join(siteInfo.ext_domains)}")    
+            if siteInfo.domain.find(self.team_domain_flg) >0:
+                return True, siteInfo
+            for ext_domain in siteInfo.ext_domains:
+                if ext_domain.find(self.team_domain_flg) >0:
+                    return True, siteInfo   
+        return False, None
+    
+    def is_team_site(self, torrent: TorrentInfo)->bool:
+        findSiteInfo, siteInfo = self.get_team_siteinfo(torrent.site_name)
+        if findSiteInfo:
+            return torrent.site == siteInfo.id
+        return False
+    
+    def process_torrent(self, torrent: TorrentInfo):
+        pass
+
+    def process_history(self, history: DownloadHistory):
+        pass
+
+class SiteInfo:
+    id: int = None
+    name: str = None
+    domain: str = None
+    ext_domains: List[str] = None
+    encoding: str = None
+    parser: str = None
+    public: bool = None
+    schema: str = None
+    search: Dict[str, Any] = None
+    torrents: Dict[str, Any] = None
+    url: str = None
+    pri: int = None
+    category: Dict[str, Any] = None
+    torrent: Dict[str, Any] = None
+    cookie: str = None
+    ua: str = None
+    apikey: str = None
+    token: str = None
+    proxy: bool = None
+    filter: str = None
+    render: int = None
+    note: str = None
+    limit_interval: int = None
+    limit_count: int = None
+    limit_seconds: int = None
+    timeout: int = None
+    is_active: bool = None
+
+    def __setattr__(self, name: str, value: Any):
+        self.__dict__[name] = value
+
+    def __get_properties(self):
+        """
+        获取属性列表
+        """
+        property_names = []
+        for member_name in dir(self.__class__):
+            member = getattr(self.__class__, member_name)
+            if isinstance(member, property):
+                property_names.append(member_name)
+        return property_names
+
+    def from_dict(self, data: dict):
+        """
+        从字典中初始化
+        """
+        properties = self.__get_properties()
+        for key, value in data.items():
+            if key in properties:
+                continue
+            setattr(self, key, value)
