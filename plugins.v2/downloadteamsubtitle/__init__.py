@@ -19,6 +19,212 @@ from app.schemas import ServiceInfo
 from app.schemas.types import EventType, MediaType
 from app.utils.string import StringUtils
 
+from app.utils.http import RequestUtils
+from app.utils.string import StringUtils
+from app.utils.system import SystemUtils
+from app.helper.torrent import TorrentHelper
+
+import shutil
+from pathlib import Path
+
+from mteam import MTeamClient
+from mteam.subtitle import SubtitleSearch, SubtitleLanguage
+
+
+class SiteInfo:
+    id: int = None
+    name: str = None
+    domain: str = None
+    ext_domains: List[str] = None
+    encoding: str = None
+    parser: str = None
+    public: bool = None
+    schema: str = None
+    search: Dict[str, Any] = None
+    torrents: Dict[str, Any] = None
+    url: str = None
+    pri: int = None
+    category: Dict[str, Any] = None
+    torrent: Dict[str, Any] = None
+    cookie: str = None
+    ua: str = None
+    apikey: str = None
+    token: str = None
+    proxy: bool = None
+    filter: str = None
+    render: int = None
+    note: str = None
+    limit_interval: int = None
+    limit_count: int = None
+    limit_seconds: int = None
+    timeout: int = None
+    is_active: bool = None
+
+    def __setattr__(self, name: str, value: Any):
+        self.__dict__[name] = value
+
+    def __get_properties(self):
+        """
+        获取属性列表
+        """
+        property_names = []
+        for member_name in dir(self.__class__):
+            member = getattr(self.__class__, member_name)
+            if isinstance(member, property):
+                property_names.append(member_name)
+        return property_names
+
+    def from_dict(self, data: dict):
+        """
+        从字典中初始化
+        """
+        properties = self.__get_properties()
+        for key, value in data.items():
+            if key in properties:
+                continue
+            setattr(self, key, value)
+
+
+class TeamProcess():
+    LOG_TAG=None
+    team_domain_flg = "team"
+    team_subtitle_url = "https://api.m-team.cc/api/subtitle/dlV2?credential={credential}"
+    downloadhistory_oper = None
+    downloader_helper = None
+    sites_helper = None 
+    def __init__(self, LOG_TAG:str):
+        self.LOG_TAG = LOG_TAG
+        self.downloadhistory_oper = DownloadHistoryOper()
+        self.downloader_helper = DownloaderHelper()
+        self.sites_helper = SitesHelper()
+        pass
+
+    def get_team_siteinfo(self)->SiteInfo:
+        sites = self.sites_helper.get_indexers()
+        # 获取站点信息
+        for site in sites:
+            siteInfo = SiteInfo()
+            siteInfo.from_dict(site)
+            logger.info(f"{self.LOG_TAG}站点信息：{siteInfo.domain}, {siteInfo.apikey}")    
+            if siteInfo.domain.find(self.team_domain_flg) >0:
+                return  siteInfo
+            for ext_domain in siteInfo.ext_domains:
+                if ext_domain.find(self.team_domain_flg) >0:
+                    return siteInfo   
+        return None
+    
+    def is_team_site(self, torrent: TorrentInfo)->bool:
+        return torrent.page_url.find(self.team_domain_flg) >0
+    
+
+    def get_team_torrentid(self, torrent: TorrentInfo)->str:
+        return torrent.page_url.split("/")[-1]
+    
+    def get_torrent_subtitle(self, torrentid:str, apikey:str)->List[str] :
+        url_list = []
+         # 使用上下文管理器
+        with MTeamClient(api_key=apikey) as client: 
+            result = client.subtitle.get_subtitle_list(torrentid)
+            logger.info(f"{self.LOG_TAG}Response code: {result.code}")
+            logger.info(f"{self.LOG_TAG}Response message: {result.message}")
+            
+            if result.data:
+                for subtitle in result.data:
+                    logger.info("=" * 50)
+                    logger.info(f"{self.LOG_TAG}字幕ID: {subtitle.id}")
+                    result = client.subtitle.generate_download_link(subtitle.id)
+                    if result.code == 0:
+                        url_list.append(self.team_subtitle_url.format(credential=result.data))
+                    else:
+                        logger.error(f"{self.LOG_TAG}获取字幕下载链接失败: {result.message}")
+        return url_list 
+        
+    
+    def download_file(self,sublink_list:List[str], download_dir:Path)->int:
+        ok_cnt = 0
+        for sublink in sublink_list:
+            logger.info(f"{self.LOG_TAG}找到字幕下载链接：{sublink}，开始下载...")
+            # 下载
+            ret = RequestUtils().get_res(sublink)
+            if ret and ret.status_code == 200:
+                # 保存ZIP
+                file_name = TorrentHelper.get_url_filename(ret, sublink)
+                if not file_name:
+                    logger.warn(f"{self.LOG_TAG}链接不是字幕文件：{sublink}")
+                    continue
+                if file_name.lower().endswith(".zip"):
+                    logger.info(f"{self.LOG_TAG}下载ZIP文件：{file_name}")
+                    # ZIP包
+                    zip_file = settings.TEMP_PATH / file_name
+                    # 保存
+                    zip_file.write_bytes(ret.content)
+                    # 解压路径
+                    zip_path = zip_file.with_name(zip_file.stem)
+                    # 解压文件
+                    shutil.unpack_archive(zip_file, zip_path, format='zip')
+                    # 遍历转移文件
+                    for sub_file in SystemUtils.list_files(zip_path, settings.RMT_SUBEXT):
+                        target_sub_file = download_dir / sub_file.name
+                        if target_sub_file.exists():
+                            logger.info(f"{self.LOG_TAG}字幕文件已存在：{target_sub_file}")
+                            continue
+                        logger.info(f"{self.LOG_TAG}转移字幕 {sub_file} 到 {target_sub_file} ...")
+                        SystemUtils.copy(sub_file, target_sub_file)
+                    # 删除临时文件
+                    try:
+                        shutil.rmtree(zip_path)
+                        zip_file.unlink()
+                    except Exception as err:
+                        logger.error(f"{self.LOG_TAG}删除临时文件失败：{str(err)}")
+                    ok_cnt += 1
+                else:
+                    sub_file = settings.TEMP_PATH / file_name
+                    # 保存
+                    sub_file.write_bytes(ret.content)
+                    target_sub_file = download_dir / sub_file.name
+                    logger.info(f"{self.LOG_TAG}转移字幕 {sub_file} 到 {target_sub_file}")
+                    SystemUtils.copy(sub_file, target_sub_file)
+                    ok_cnt += 1
+            else:
+                logger.error(f"下载字幕文件失败：{sublink}")
+                continue
+        return ok_cnt
+    
+    def process_torrent(self, torrent: TorrentInfo, hash_ :str):
+        if not self.is_team_site(torrent):
+            logger.info(f"{self.LOG_TAG}不是馒头站点，跳过")
+            return
+        team_torrentid = self.get_team_torrentid(torrent)
+        logger.info(f"{self.LOG_TAG}处理种子：{team_torrentid}")
+
+        team_siteinfo = self.get_team_siteinfo()
+        if not team_siteinfo:
+            logger.info(f"{self.LOG_TAG}未找到馒头站点")
+            return
+        subtitles = self.get_torrent_subtitle(team_torrentid, team_siteinfo.apikey)
+        if not subtitles:
+            logger.info(f"{self.LOG_TAG}未找到字幕文件")
+            return
+        if len(subtitles) == 0:
+            logger.info(f"{self.LOG_TAG}未找到字幕文件")
+            return
+        logger.info(f"{self.LOG_TAG}开始下载字幕：{subtitles}")
+
+        history: DownloadHistory = self.downloadhistory_oper.get_by_hash(hash_)
+        if not history.path:
+            logger.info(f"{self.LOG_TAG}未找到下载历史")
+            return
+        logger.info(f"{self.LOG_TAG}下载字幕文件到：{history.path}")  
+        ok_cnt = self.download_file(subtitles, Path(history.path))
+        if ok_cnt== 0:
+            logger.info(f"{self.LOG_TAG}下载字幕文件失败")
+        total_cnt = len(subtitles)
+        logger.info(f"{self.LOG_TAG}下载字幕文件成功/可用{ok_cnt}/{total_cnt}")
+
+
+    def process_history(self, history: DownloadHistory):
+        pass
+
 class DownloadTeamSubtitle(_PluginBase):
     # 插件名称
     plugin_name = "下载任务字幕"
@@ -47,6 +253,8 @@ class DownloadTeamSubtitle(_PluginBase):
     downloadhistory_oper = None
     sites_helper = None
     downloader_helper = None
+    team_process = None
+
     _scheduler = None
     _enabled = False
     _onlyonce = False
@@ -68,9 +276,9 @@ class DownloadTeamSubtitle(_PluginBase):
         self.sites_helper = SitesHelper()
         self.team_process = TeamProcess(self.LOG_TAG)
 
-        findSiteInfo, siteInfo = self.team_process.get_team_siteinfo() 
-        if findSiteInfo:
-            self.team_process.LOG_TAG = f"{self.LOG_TAG}站点: {siteInfo.domain},{siteInfo.apikey}"
+        siteInfo = self.team_process.get_team_siteinfo() 
+        if siteInfo:
+            logger.info(f"{self.LOG_TAG}找到站点: {siteInfo.domain}")
         else:
             logger.error(f"{self.LOG_TAG}未找到馒头站点")
             return  
@@ -114,7 +322,6 @@ class DownloadTeamSubtitle(_PluginBase):
 
 
     def get_state(self) -> bool:
-        return True
         return self._enabled
 
     @staticmethod
@@ -134,40 +341,6 @@ class DownloadTeamSubtitle(_PluginBase):
             "kwargs": {} # 定时器参数
         }]
         """
-        if self._enabled:
-            if self._interval == "计划任务" or self._interval == "固定间隔":
-                if self._interval == "固定间隔":
-                    if self._interval_unit == "小时":
-                        return [{
-                            "id": "DownloadTeamSubtitle",
-                            "name": "下载任务字幕",
-                            "trigger": "interval",
-                            "func": self._complemented_history,
-                            "kwargs": {
-                                "hours": self._interval_time
-                            }
-                        }]
-                    else:
-                        if self._interval_time < 5:
-                            self._interval_time = 5
-                            logger.info(f"{self.LOG_TAG}启动定时服务: 最小不少于5分钟, 防止执行间隔太短任务冲突")
-                        return [{
-                            "id": "DownloadTeamSubtitle",
-                            "name": "下载任务字幕",
-                            "trigger": "interval",
-                            "func": self._complemented_history,
-                            "kwargs": {
-                                "minutes": self._interval_time
-                            }
-                        }]
-                else:
-                    return [{
-                        "id": "DownloadTeamSubtitle",
-                        "name": "下载任务字幕",
-                        "trigger": CronTrigger.from_crontab(self._interval_cron),
-                        "func": self._complemented_history,
-                        "kwargs": {}
-                    }]
         return []
 
     @staticmethod
@@ -203,6 +376,7 @@ class DownloadTeamSubtitle(_PluginBase):
             _torrent:TorrentInfo = context.torrent_info
             _media:MediaInfo = context.media_info 
             logger.info(f"{self.LOG_TAG}下载任务字幕: {_torrent.site_name}")
+            self.team_process.process_torrent(_torrent, _hash)
         except Exception as e:
             logger.error(
                 f"{self.LOG_TAG}分析下载事件时发生了错误: {str(e)}")
@@ -529,94 +703,3 @@ class DownloadTeamSubtitle(_PluginBase):
             print(str(e))
 
 
-class TeamProcess():
-    LOG_TAG=None
-    team_domain_flg = "team"
-    downloadhistory_oper = None
-    downloader_helper = None
-    sites_helper = None 
-    def __init__(self, LOG_TAG:str):
-        self.LOG_TAG = LOG_TAG
-        self.downloadhistory_oper = DownloadHistoryOper()
-        self.downloader_helper = DownloaderHelper()
-        self.sites_helper = SitesHelper()
-        pass
-
-    def get_team_siteinfo(self)->Tuple[bool, SiteInfo]:
-        sites = self.sites_helper.get_indexers()
-        # 获取站点信息
-        for site in sites:
-            siteInfo = SiteInfo()
-            siteInfo.from_dict(site)
-            logger.info(f"{self.LOG_TAG}站点信息：{siteInfo.domain}, {",".join(siteInfo.ext_domains)}")    
-            if siteInfo.domain.find(self.team_domain_flg) >0:
-                return True, siteInfo
-            for ext_domain in siteInfo.ext_domains:
-                if ext_domain.find(self.team_domain_flg) >0:
-                    return True, siteInfo   
-        return False, None
-    
-    def is_team_site(self, torrent: TorrentInfo)->bool:
-        findSiteInfo, siteInfo = self.get_team_siteinfo(torrent.site_name)
-        if findSiteInfo:
-            return torrent.site == siteInfo.id
-        return False
-    
-    def process_torrent(self, torrent: TorrentInfo):
-        pass
-
-    def process_history(self, history: DownloadHistory):
-        pass
-
-class SiteInfo:
-    id: int = None
-    name: str = None
-    domain: str = None
-    ext_domains: List[str] = None
-    encoding: str = None
-    parser: str = None
-    public: bool = None
-    schema: str = None
-    search: Dict[str, Any] = None
-    torrents: Dict[str, Any] = None
-    url: str = None
-    pri: int = None
-    category: Dict[str, Any] = None
-    torrent: Dict[str, Any] = None
-    cookie: str = None
-    ua: str = None
-    apikey: str = None
-    token: str = None
-    proxy: bool = None
-    filter: str = None
-    render: int = None
-    note: str = None
-    limit_interval: int = None
-    limit_count: int = None
-    limit_seconds: int = None
-    timeout: int = None
-    is_active: bool = None
-
-    def __setattr__(self, name: str, value: Any):
-        self.__dict__[name] = value
-
-    def __get_properties(self):
-        """
-        获取属性列表
-        """
-        property_names = []
-        for member_name in dir(self.__class__):
-            member = getattr(self.__class__, member_name)
-            if isinstance(member, property):
-                property_names.append(member_name)
-        return property_names
-
-    def from_dict(self, data: dict):
-        """
-        从字典中初始化
-        """
-        properties = self.__get_properties()
-        for key, value in data.items():
-            if key in properties:
-                continue
-            setattr(self, key, value)
