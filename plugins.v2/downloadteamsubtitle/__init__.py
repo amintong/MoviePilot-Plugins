@@ -233,7 +233,7 @@ class DownloadTeamSubtitle(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "0.2"
+    plugin_version = "0.3"
     # 插件作者
     plugin_author = "小明"
     # 作者主页
