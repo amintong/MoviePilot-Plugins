@@ -1,18 +1,9 @@
 {
-    "test": {
-        "name": "test",
-        "description": "test",
-        "labels": "test",
-        "version": "1.0",
-        "icon": "test.png",
-        "author": "amintong",
-        "level": 1
-    },
     "downloadteamsubtitle": {
         "name": "下载任务字幕",
         "description": "自动给下载任务添加字幕",
         "labels": "字幕",
-        "version": "0.2",
+        "version": "0.4",
         "icon": "Youtube-dl_B.png",
         "author": "amintong",
         "level": 1
