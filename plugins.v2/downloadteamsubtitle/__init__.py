@@ -31,6 +31,10 @@ from mteam import MTeamClient
 from mteam.subtitle import SubtitleSearch, SubtitleLanguage
 
 
+# 参考系统自带的
+# 使用了 formatdownpath 会转移文件的位置
+# https://github.com/jxxghp/MoviePilot/blob/968cfd86544f21b38b08613a405b91831b741e4e/app/modules/subtitle/__init__.py#L74
+
 class SiteInfo:
     id: int = None
     name: str = None
@@ -140,7 +144,14 @@ class TeamProcess():
         return url_list 
         
     
-    def download_file(self,sublink_list:List[str], download_dir:Path)->int:
+    def download_file(self, sublink_list: List[str], download_dir: Path) -> int:
+        # 如果download_dir是文件，就取它所在的目录
+        if download_dir.exists() and download_dir.is_file():
+            download_dir = download_dir.parent
+        ok_cnt = 0
+        for sublink in sublink_list:
+            logger.info(f"{self.LOG_TAG}找到字幕下载链接：{sublink}，开始下载...")
+        #  如果download_dir是文件 就取他所在的目录
         ok_cnt = 0
         for sublink in sublink_list:
             logger.info(f"{self.LOG_TAG}找到字幕下载链接：{sublink}，开始下载...")
@@ -215,6 +226,7 @@ class TeamProcess():
             logger.info(f"{self.LOG_TAG}未找到下载历史")
             return
         logger.info(f"{self.LOG_TAG}下载字幕文件到：{history.path}")  
+
         ok_cnt = self.download_file(subtitles, Path(history.path))
         if ok_cnt== 0:
             logger.info(f"{self.LOG_TAG}下载字幕文件失败")
@@ -233,7 +245,7 @@ class DownloadTeamSubtitle(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "0.6"
+    plugin_version = "0.4"
     # 插件作者
     plugin_author = "小明"
     # 作者主页
@@ -286,18 +298,6 @@ class DownloadTeamSubtitle(_PluginBase):
         # 读取配置
         if config:
             self._enabled = config.get("enabled")
-            self._onlyonce = config.get("onlyonce")
-            self._interval = config.get("interval") or "计划任务"
-            self._interval_cron = config.get("interval_cron") or "5 4 * * *"
-            self._interval_time = self.str_to_number(config.get("interval_time"), 6)
-            self._interval_unit = config.get("interval_unit") or "小时"
-            self._enabled_media_tag = config.get("enabled_media_tag")
-            self._enabled_tag = config.get("enabled_tag")
-            self._enabled_category = config.get("enabled_category")
-            self._category_movie = config.get("category_movie") or "电影"
-            self._category_tv = config.get("category_tv") or "电视"
-            self._category_anime = config.get("category_anime") or "动漫"
-            self._downloaders = config.get("downloaders")
 
         # 停止现有任务
         self.stop_service()
