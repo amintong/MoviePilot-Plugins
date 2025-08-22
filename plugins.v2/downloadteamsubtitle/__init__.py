@@ -147,6 +147,7 @@ class TeamProcess():
     def download_file(self, sublink_list: List[str], download_dir: Path) -> int:
         # 如果download_dir是文件，就取它所在的目录
         if download_dir.exists() and download_dir.is_file():
+            logger.info(f"{self.LOG_TAG}下载目录是文件，使用父目录保存字幕文件{download_dir}")
             download_dir = download_dir.parent
         ok_cnt = 0
         for sublink in sublink_list:
@@ -245,7 +246,7 @@ class DownloadTeamSubtitle(_PluginBase):
     # 插件图标
     plugin_icon = "Youtube-dl_B.png"
     # 插件版本
-    plugin_version = "0.7"
+    plugin_version = "0.8"
     # 插件作者
     plugin_author = "小明"
     # 作者主页
@@ -288,6 +289,7 @@ class DownloadTeamSubtitle(_PluginBase):
         self.sites_helper = SitesHelper()
         self.team_process = TeamProcess(self.LOG_TAG)
 
+        logger.info(f"{self.LOG_TAG}插件当前版本: {self.plugin_version}")
         siteInfo = self.team_process.get_team_siteinfo() 
         if siteInfo:
             logger.info(f"{self.LOG_TAG}找到站点: {siteInfo.domain}")

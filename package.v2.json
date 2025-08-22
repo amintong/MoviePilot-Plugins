@@ -3,7 +3,7 @@
         "name": "下载任务字幕",
         "description": "自动给下载任务添加字幕",
         "labels": "字幕",
-        "version": "0.7",
+        "version": "0.8",
         "icon": "Youtube-dl_B.png",
         "author": "amintong",
         "level": 1
